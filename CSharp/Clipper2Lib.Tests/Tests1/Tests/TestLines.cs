@@ -2,11 +2,9 @@ using Microsoft.VisualStudio.TestTools.UnitTesting;
 
 namespace Clipper2Lib.UnitTests
 {
-
   [TestClass]
   public class TestLines
   {
-
     [TestMethod]
     public void TestOpenPaths()
     {
@@ -17,7 +15,7 @@ namespace Clipper2Lib.UnitTests
         Paths64 solution = new(), solution_open = new();
 
         Assert.IsTrue(ClipperFileIO.LoadTestNum("..\\..\\..\\..\\..\\..\\Tests\\Lines.txt",
-          i, subj, subj_open, clip, out ClipType clipType, out FillRule fillrule,  
+          i, subj, subj_open, clip, out ClipType clipType, out FillRule fillrule,
           out long area, out int count, out _),
             string.Format("Loading test {0} failed.", i));
 
@@ -39,9 +37,7 @@ namespace Clipper2Lib.UnitTests
           Assert.IsTrue(Math.Abs(solution.Count - count) < 2,
             string.Format("Incorrect count in test {0}", i));
         }
-
       } //bottom of num loop
-
     }
   }
 }

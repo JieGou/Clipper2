@@ -8,6 +8,7 @@
 *******************************************************************************/
 
 #nullable enable
+
 using System;
 using System.Collections.Generic;
 
@@ -85,7 +86,5 @@ namespace Clipper2Lib
         Clipper.ScalePath64(path, scale), false, isClosed), FillRule.NonZero);
       return Clipper.ScalePathsD(tmp, 1 / scale);
     }
-
   }
-
 } // namespace
