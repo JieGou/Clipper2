@@ -71,6 +71,20 @@ namespace Clipper2Lib {
   }
   //------------------------------------------------------------------------------
 
+  void SvgWriter::AddPath(const Path64& path, bool is_open, FillRule fillrule,
+    unsigned brush_color, unsigned pen_color, double pen_width, bool show_coords)
+  {
+    int error_code = 0;
+    if (path.size() == 0) return;
+    PathsD tmp;
+    tmp.push_back(ScalePath<double, int64_t>(path, scale_, error_code));
+    if (error_code) return;
+    PathInfo* pi = new PathInfo(tmp, is_open, fillrule,
+      brush_color, pen_color, pen_width, show_coords);
+    path_infos.push_back(pi);
+  }
+  //------------------------------------------------------------------------------
+
   void SvgWriter::AddPath(const PathD &path, bool is_open, FillRule fillrule,
     unsigned brush_color, unsigned pen_color, double pen_width, bool show_coords)
   {
@@ -126,7 +140,7 @@ namespace Clipper2Lib {
   bool SvgWriter::SaveToFile(const std::string &filename,
     int max_width, int max_height, int margin)
   {
-    RectD rec = MaxInvalidRectD;
+    RectD rec = InvalidRectD;
     for (const PathInfo* pi : path_infos)
       for (const PathD& path : pi->paths_)
         for (const PointD& pt : path){
@@ -234,18 +248,19 @@ namespace Clipper2Lib {
       }
     }
 
-    //draw red dots at all vertices - useful for debugging
+    ////draw red dots at all solution vertices - useful for debugging
     //for (PathInfo* pi : path_infos)
-    //  for (PathD& path : pi->paths_)
-    //    for (PointD& pt : path)
-    //      DrawCircle(file, pt.x * scale + offsetX, pt.y * scale + offsetY, 1);
+    //  if (!(pi->pen_color_ & 0x00FF00FF)) // ie any shade of green only
+    //    for (PathD& path : pi->paths_)
+    //      for (PointD& pt : path)
+    //        DrawCircle(file, pt.x * scale + offsetX, pt.y * scale + offsetY, 1.6);
 
     for (TextInfo* ti : text_infos) 
     {
       file << "  <g font-family=\"" << ti->font_name << "\" font-size=\"" <<
         ti->font_size << "\" fill=\"" << ColorToHtml(ti->font_color) <<
         "\" fill-opacity=\"" << GetAlphaAsFrac(ti->font_color) << "\">\n";
-      file << "    <text x=\"" << (ti->x + margin) << "\" y=\"" << (ti->y+margin) << "\">" <<
+      file << "    <text x=\"" << (ti->x * scale + offsetX) << "\" y=\"" << (ti->y * scale + offsetY) << "\">" <<
         ti->text << "</text>\n  </g>\n\n";
     }
 
@@ -396,8 +411,9 @@ namespace Clipper2Lib {
   bool SvgReader::LoadFromFile(const std::string &filename)
   {
       Clear();
-      std::ifstream file;
-      file.open(filename);      
+      std::ifstream file(filename);
+      if (!file.good()) return false;
+
       std::stringstream xml_buff;
       xml_buff << file.rdbuf();
       file.close();

@@ -2,7 +2,7 @@ unit Clipper.Core;
 
 (*******************************************************************************
 * Author    :  Angus Johnson                                                   *
-* Date      :  10 February 2023                                                *
+* Date      :  5 November 2023                                                 *
 * Website   :  http://www.angusj.com                                           *
 * Copyright :  Angus Johnson 2010-2023                                         *
 * Purpose   :  Core Clipper Library module                                     *
@@ -64,6 +64,7 @@ type
     function GetWidth: Int64; {$IFDEF INLINING} inline; {$ENDIF}
     function GetHeight: Int64; {$IFDEF INLINING} inline; {$ENDIF}
     function GetIsEmpty: Boolean; {$IFDEF INLINING} inline; {$ENDIF}
+    function GetIsValid: Boolean; {$IFDEF INLINING} inline; {$ENDIF}
     function GetMidPoint: TPoint64; {$IFDEF INLINING} inline; {$ENDIF}
   public
     Left   : Int64;
@@ -78,6 +79,7 @@ type
     property Width: Int64 read GetWidth;
     property Height: Int64 read GetHeight;
     property IsEmpty: Boolean read GetIsEmpty;
+    property IsValid: Boolean read GetIsValid;
     property MidPoint: TPoint64 read GetMidPoint;
   end;
 
@@ -86,6 +88,7 @@ type
     function GetWidth: double; {$IFDEF INLINING} inline; {$ENDIF}
     function GetHeight: double; {$IFDEF INLINING} inline; {$ENDIF}
     function GetIsEmpty: Boolean; {$IFDEF INLINING} inline; {$ENDIF}
+    function GetIsValid: Boolean; {$IFDEF INLINING} inline; {$ENDIF}
     function GetMidPoint: TPointD; {$IFDEF INLINING} inline; {$ENDIF}
   public
     Left   : double;
@@ -99,6 +102,7 @@ type
     property Width: double read GetWidth;
     property Height: double read GetHeight;
     property IsEmpty: Boolean read GetIsEmpty;
+    property IsValid: Boolean read GetIsValid;
     property MidPoint: TPointD read GetMidPoint;
   end;
 
@@ -120,6 +124,7 @@ type
   protected
     function UnsafeGet(idx: integer): Pointer; // no range checking
     procedure UnsafeSet(idx: integer; val: Pointer);
+    procedure UnsafeDelete(index: integer); virtual;
   public
     constructor Create(capacity: integer = 0); virtual;
     destructor Destroy; override;
@@ -334,6 +339,7 @@ procedure CheckPrecisionRange(var precision: integer);
 
 const
   MaxInt64    = 9223372036854775807;
+  MinInt64    = -MaxInt64;
   MaxCoord    = MaxInt64 div 4;
   MinCoord    = - MaxCoord;
   invalid64   = MaxInt64;
@@ -345,7 +351,15 @@ const
   InvalidPtD :  TPointD = (X: invalidD; Y: invalidD);
 
   NullRectD   : TRectD = (left: 0; top: 0; right: 0; Bottom: 0);
+  InvalidRect64 : TRect64 =
+    (left: invalid64; top: invalid64; right: invalid64; bottom: invalid64);
+  InvalidRectD : TRectD =
+    (left: invalidD; top: invalidD; right: invalidD; bottom: invalidD);
+
   Tolerance   : Double = 1.0E-12;
+
+  //https://github.com/AngusJohnson/Clipper2/discussions/564
+  MaxDecimalPrecision = 8;
 
 implementation
 
@@ -371,6 +385,12 @@ end;
 function TRect64.GetIsEmpty: Boolean;
 begin
   result := (bottom <= top) or (right <= left);
+end;
+//------------------------------------------------------------------------------
+
+function TRect64.GetIsValid: Boolean;
+begin
+  result := left <> invalid64;
 end;
 //------------------------------------------------------------------------------
 
@@ -400,8 +420,8 @@ end;
 
 function TRect64.Intersects(const rec: TRect64): Boolean;
 begin
-  Result := (Max(Left, rec.Left) < Min(Right, rec.Right)) and
-    (Max(Top, rec.Top) < Min(Bottom, rec.Bottom));
+  Result := (Max(Left, rec.Left) <= Min(Right, rec.Right)) and
+    (Max(Top, rec.Top) <= Min(Bottom, rec.Bottom));
 end;
 //------------------------------------------------------------------------------
 
@@ -446,6 +466,12 @@ begin
 end;
 //------------------------------------------------------------------------------
 
+function TRectD.GetIsValid: Boolean;
+begin
+  result := left <> invalidD;
+end;
+//------------------------------------------------------------------------------
+
 function TRectD.GetMidPoint: TPointD;
 begin
   result := PointD((Left + Right) *0.5, (Top + Bottom) *0.5);
@@ -468,8 +494,8 @@ end;
 
 function TRectD.Intersects(const rec: TRectD): Boolean;
 begin
-  Result := (Max(Left, rec.Left) < Min(Right, rec.Right)) and
-    (Max(Top, rec.Top) < Min(Bottom, rec.Bottom));
+  Result := (Max(Left, rec.Left) <= Min(Right, rec.Right)) and
+    (Max(Top, rec.Top) <= Min(Bottom, rec.Bottom));
 end;
 //------------------------------------------------------------------------------
 
@@ -608,6 +634,14 @@ begin
 end;
 //------------------------------------------------------------------------------
 
+procedure TListEx.UnsafeDelete(index: integer);
+begin
+  dec(fCount);
+  if index < fCount then
+    Move(fList[index +1], fList[index], (fCount - index) * SizeOf(Pointer));
+end;
+//------------------------------------------------------------------------------
+
 procedure TListEx.Swap(idx1, idx2: integer);
 var
   p: Pointer;
@@ -623,7 +657,7 @@ end;
 
 procedure CheckPrecisionRange(var precision: integer);
 begin
-  if (precision < -8) or (precision > 8) then
+  if (precision < -MaxDecimalPrecision) or (precision > MaxDecimalPrecision) then
       Raise EClipper2LibException(rsClipper_PrecisonErr);
 end;
 //------------------------------------------------------------------------------
@@ -1465,7 +1499,7 @@ begin
         inc(p);
       end;
     end;
-  if Result.Left > Result.Right then Result := NullRect64;
+  if Result.Left = MaxInt64 then Result := NullRect64;
 end;
 //------------------------------------------------------------------------------
 
@@ -1488,7 +1522,7 @@ begin
         inc(p);
       end;
     end;
-  if Result.Left >= Result.Right then Result := nullRectD;
+  if Result.Left = MaxDouble then Result := NullRectD;
 end;
 //------------------------------------------------------------------------------
 
@@ -1922,19 +1956,10 @@ begin
 end;
 //------------------------------------------------------------------------------
 
-function CheckCastInt64(val: double): Int64; {$IFDEF INLINE} inline; {$ENDIF}
-begin
-  if (val >= MaxCoord) or (val <= MinCoord) then
-    Raise EClipper2LibException.Create('overflow error.');
-  Result := Trunc(val);
-  //Result := __Trunc(val);
-end;
-//------------------------------------------------------------------------------
-
 function GetIntersectPoint(const ln1a, ln1b, ln2a, ln2b: TPoint64;
   out ip: TPoint64): Boolean;
 var
-  dx1,dy1, dx2,dy2, qx,qy, cp: double;
+  dx1,dy1, dx2,dy2, t, cp: double;
 begin
   // https://en.wikipedia.org/wiki/Line%E2%80%93line_intersection
   dy1 := (ln1b.y - ln1a.y);
@@ -1942,16 +1967,13 @@ begin
   dy2 := (ln2b.y - ln2a.y);
   dx2 := (ln2b.x - ln2a.x);
   cp  := dy1 * dx2 - dy2 * dx1;
-  if (cp = 0.0) then
-  begin
-    Result := false;
-    Exit;
-  end;
-  qx := dx1 * ln1a.y - dy1 * ln1a.x;
-  qy := dx2 * ln2a.y - dy2 * ln2a.x;
-  ip.X := CheckCastInt64((dx1 * qy - dx2 * qx) / cp);
-  ip.Y := CheckCastInt64((dy1 * qy - dy2 * qx) / cp);
-  Result := (ip.x <> invalid64) and (ip.y <> invalid64);
+  Result := (cp <> 0.0);
+  if not Result then Exit;
+  t := ((ln1a.x-ln2a.x) * dy2 - (ln1a.y-ln2a.y) * dx2) / cp;
+  if t <= 0.0 then ip := ln1a
+  else if t >= 1.0 then ip := ln1b;
+  ip.X :=  Trunc(ln1a.X + t * dx1);
+  ip.Y :=  Trunc(ln1a.Y + t * dy1);
 end;
 //------------------------------------------------------------------------------
 
@@ -1959,53 +1981,58 @@ end;
 function PointInPolygon(const pt: TPoint64;
   const polygon: TPath64): TPointInPolygonResult;
 var
-  i, len, val: Integer;
-  isAbove: Boolean;
-  d: Double; // used to avoid integer overflow
-  curr, prev, first, last, stop: PPoint64;
+  len, val: Integer;
+  isAbove, startingAbove: Boolean;
+  d: Double; // avoids integer overflow
+  curr, prev, cbegin, cend, first: PPoint64;
 begin
   result := pipOutside;
   len := Length(polygon);
   if len < 3 then Exit;
 
-  i := len -1;
-  first := @polygon[0];
+  cbegin := @polygon[0];
+  cend := @polygon[len]; // stop is just past the last point (nb {$R-})
 
-  while (i >= 0) and (polygon[i].Y = pt.Y) do dec(i);
-  if i < 0 then Exit;
-  isAbove := polygon[i].Y < pt.Y;
+  first := cbegin;
+  while (first <> cend) and (first.Y = pt.Y) do inc(first);
+  if (first = cend) then Exit; // not a proper polygon
 
+  isAbove := first.Y < pt.Y;
+  startingAbove := isAbove;
   Result := pipOn;
-  last := @polygon[len-1];
-  stop := @polygon[len]; // stop is just past the last point (nb {$R-})
-
   curr := first;
+  inc(curr);
   val := 0;
-
-  while (curr <> stop) do
+  while true do
   begin
-    if isAbove then
+    if (curr = cend) then
     begin
-      while (curr <> stop) and (curr.Y < pt.Y) do inc(curr);
-      if (curr = stop) then break;
-    end else
-    begin
-      while (curr <> stop) and (curr.Y > pt.Y) do inc(curr);
-      if (curr = stop) then break;
+      if (cend = first) or (first = cbegin) then break;
+      cend := first;
+      curr := cbegin;
     end;
 
-    if curr <> first then
+    if isAbove then
     begin
-      prev := curr;
-      dec(prev);
+      while (curr <> cend) and (curr.Y < pt.Y) do inc(curr);
+      if (curr = cend) then Continue;
     end else
-      prev := last;
+    begin
+      while (curr <> cend) and (curr.Y > pt.Y) do inc(curr);
+      if (curr = cend) then Continue;
+    end;
+
+    if curr = cbegin then
+      prev := @polygon[len] else // NOT cend!
+      prev := curr;
+    dec(prev);
 
     if (curr.Y = pt.Y) then
     begin
       if (curr.X = pt.X) or ((curr.Y = prev.Y) and
         ((pt.X < prev.X) <> (pt.X < curr.X))) then Exit;
       inc(curr);
+      if (curr = first) then Break;
       Continue;
     end;
 
@@ -2023,6 +2050,20 @@ begin
     isAbove := not isAbove;
     inc(curr);
   end;
+
+  if (isAbove <> startingAbove) then
+  begin
+    cend := @polygon[len];
+    if (curr = cend) then curr := cbegin;
+    if curr = cbegin then
+      prev := cend else
+      prev := curr;
+    dec(prev);
+    d := CrossProduct(prev^, curr^, pt);
+    if d = 0 then Exit; // ie point on path
+    if (d < 0) = isAbove then val := 1 - val;
+  end;
+
   if val = 0 then
      result := pipOutside else
      result := pipInside;

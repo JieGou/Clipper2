@@ -22,7 +22,7 @@ Clipper2Lib::Paths64 GenerateRandomPaths(std::default_random_engine& rng, int mi
 
   for (int path = 0; path < path_count; ++path)
   {
-    const int min_point_count = 3;
+    const int min_point_count = 0;
     const int path_length = GenerateRandomInt(rng, min_point_count, std::max(min_point_count, max_complexity));
     auto& result_path = result[path];
     result_path.reserve(path_length);
@@ -77,6 +77,7 @@ TEST(Clipper2Tests, TestRandomPaths)
     const int64_t area_paths = static_cast<int64_t>(Area(solution));
     const int64_t count_paths = solution.size() + solution_open.size();
 
+ 
     Clipper2Lib::PolyTree64 solution_polytree;
     Clipper2Lib::Paths64 solution_polytree_open;
     Clipper2Lib::Clipper64 clipper_polytree;
@@ -84,11 +85,11 @@ TEST(Clipper2Tests, TestRandomPaths)
     clipper_polytree.AddOpenSubject(subject_open);
     clipper_polytree.AddClip(clip);
     clipper_polytree.Execute(ct, fr, solution_polytree, solution_polytree_open);
-
     const auto solution_polytree_paths = PolyTreeToPaths64(solution_polytree);
     const int64_t area_polytree = static_cast<int64_t>(Area(solution_polytree_paths));
     const int64_t count_polytree = solution_polytree_paths.size() + solution_polytree_open.size();
     EXPECT_EQ(area_paths, area_polytree);
+
     // polytree does an additional bounds check on each path
     // and discards paths with empty bounds, so count_polytree
     // may on occasions be slightly less than count_paths even
