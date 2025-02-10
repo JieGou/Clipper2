@@ -1,14 +1,14 @@
 ﻿/*******************************************************************************
 * Author    :  Angus Johnson                                                   *
-* Date      :  18 October 2023                                                 *
-* Website   :  http://www.angusj.com                                           *
-* Copyright :  Angus Johnson 2010-2023                                         *
+* Date      :  22 January 2025                                                 *
+* Website   :  https://www.angusj.com                                          *
+* Copyright :  Angus Johnson 2010-2025                                         *
 * Purpose   :  This module contains simple functions that will likely cover    *
 *              most polygon boolean and offsetting needs, while also avoiding  *
 *              the inherent complexities of the other modules.                 *
 * Thanks    :  Special thanks to Thong Nguyen, Guus Kuiper, Phil Stopford,     *
 *           :  and Daniel Gosnell for their invaluable assistance with C#.     *
-* License   :  http://www.boost.org/LICENSE_1_0.txt                            *
+* License   :  https://www.boost.org/LICENSE_1_0.txt                           *
 *******************************************************************************/
 
 #nullable enable
@@ -138,9 +138,9 @@ namespace Clipper2Lib
     }
 
     public static Paths64 InflatePaths(Paths64 paths, double delta, JoinType joinType,
-      EndType endType, double miterLimit = 2.0)
+      EndType endType, double miterLimit = 2.0, double arcTolerance = 0.0)
     {
-      ClipperOffset co = new ClipperOffset(miterLimit);
+      ClipperOffset co = new ClipperOffset(miterLimit, arcTolerance);
       co.AddPaths(paths, joinType, endType);
       Paths64 solution = new Paths64();
       co.Execute(delta, solution);
@@ -148,12 +148,12 @@ namespace Clipper2Lib
     }
 
     public static PathsD InflatePaths(PathsD paths, double delta, JoinType joinType,
-      EndType endType, double miterLimit = 2.0, int precision = 2)
+      EndType endType, double miterLimit = 2.0, int precision = 2, double arcTolerance = 0.0)
     {
       InternalClipper.CheckPrecision(precision);
       double scale = Math.Pow(10, precision);
       Paths64 tmp = ScalePaths64(paths, scale);
-      ClipperOffset co = new ClipperOffset(miterLimit);
+      ClipperOffset co = new ClipperOffset(miterLimit, arcTolerance);
       co.AddPaths(tmp, joinType, endType);
       co.Execute(delta * scale, tmp); // reuse 'tmp' to receive (scaled) solution
       return ScalePathsD(tmp, 1 / scale);
@@ -589,7 +589,7 @@ namespace Clipper2Lib
         if (pt.y < result.top) result.top = pt.y;
         if (pt.y > result.bottom) result.bottom = pt.y;
       }
-      return result.left == double.MaxValue ? new RectD() : result;
+      return Math.Abs(result.left - double.MaxValue) < InternalClipper.floatingPointTolerance ? new RectD() : result;
     }
 
     public static RectD GetBounds(PathsD paths)
@@ -603,7 +603,7 @@ namespace Clipper2Lib
           if (pt.y < result.top) result.top = pt.y;
           if (pt.y > result.bottom) result.bottom = pt.y;
         }
-      return result.left == double.MaxValue ? new RectD() : result;
+      return Math.Abs(result.left - double.MaxValue) < InternalClipper.floatingPointTolerance ? new RectD() : result;
     }
 
     public static Path64 MakePath(int[] arr)
@@ -633,10 +633,72 @@ namespace Clipper2Lib
       return p;
     }
 
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static double Sqr(double value)
+#if USINGZ
+    public static Path64 MakePathZ(long[] arr)
     {
-      return value * value;
+      int len = arr.Length / 3;
+      Path64 p = new Path64(len);
+      for (int i = 0; i < len; i++)
+        p.Add(new Point64(arr[i * 3], arr[i * 3 + 1], arr[i * 3 + 2]));
+      return p;
+    }
+    public static PathD MakePathZ(double[] arr)
+    {
+      int len = arr.Length / 3;
+      PathD p = new PathD(len);
+      for (int i = 0; i < len; i++)
+        p.Add(new PointD(arr[i * 3], arr[i * 3 + 1], (long)arr[i * 3 + 2]));
+      return p;
+    }
+#endif
+
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static double Sqr(double val)
+    {
+      return val * val;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static double Sqr(long val)
+    {
+      return (double) val * (double) val;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static double DistanceSqr(Point64 pt1, Point64 pt2)
+    {
+      return Sqr(pt1.X - pt2.X) + Sqr(pt1.Y - pt2.Y);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static Point64 MidPoint(Point64 pt1, Point64 pt2)
+    {
+      return new Point64((pt1.X + pt2.X) / 2, (pt1.Y + pt2.Y) / 2);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static PointD MidPoint(PointD pt1, PointD pt2)
+    {
+      return new PointD((pt1.x + pt2.x) / 2, (pt1.y + pt2.y) / 2);
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void InflateRect(ref Rect64 rec, int dx, int dy)
+    {
+      rec.left -= dx;
+      rec.right += dx;
+      rec.top -= dy;
+      rec.bottom += dy;
+    }
+
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void InflateRect(ref RectD rec, double dx, double dy)
+    {
+      rec.left -= dx;
+      rec.right += dx;
+      rec.top -= dy;
+      rec.bottom += dy;
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -751,21 +813,31 @@ namespace Clipper2Lib
 
     internal static void RDP(Path64 path, int begin, int end, double epsSqrd, List<bool> flags)
     {
-      int idx = 0;
-      double max_d = 0;
-      while (end > begin && path[begin] == path[end]) flags[end--] = false;
-      for (int i = begin + 1; i < end; ++i)
+      while (true)
       {
-        // PerpendicDistFromLineSqrd - avoids expensive Sqrt()
-        double d = PerpendicDistFromLineSqrd(path[i], path[begin], path[end]);
-        if (d <= max_d) continue;
-        max_d = d;
-        idx = i;
+        int idx = 0;
+        double max_d = 0;
+        while (end > begin && path[begin] == path[end]) flags[end--] = false;
+        for (int i = begin + 1; i < end; ++i)
+        {
+          // PerpendicDistFromLineSqrd - avoids expensive Sqrt()
+          double d = PerpendicDistFromLineSqrd(path[i], path[begin], path[end]);
+          if (d <= max_d) continue;
+          max_d = d;
+          idx = i;
+        }
+
+        if (max_d <= epsSqrd) return;
+        flags[idx] = true;
+        if (idx > begin + 1) RDP(path, begin, idx, epsSqrd, flags);
+        if (idx < end - 1)
+        {
+          begin = idx;
+          continue;
+        }
+
+        break;
       }
-      if (max_d <= epsSqrd) return;
-      flags[idx] = true;
-      if (idx > begin + 1) RDP(path, begin, idx, epsSqrd, flags);
-      if (idx < end - 1) RDP(path, idx, end, epsSqrd, flags);
     }
 
     public static Path64 RamerDouglasPeucker(Path64 path, double epsilon)
@@ -790,21 +862,31 @@ namespace Clipper2Lib
 
     internal static void RDP(PathD path, int begin, int end, double epsSqrd, List<bool> flags)
     {
-      int idx = 0;
-      double max_d = 0;
-      while (end > begin && path[begin] == path[end]) flags[end--] = false;
-      for (int i = begin + 1; i < end; ++i)
+      while (true)
       {
-        // PerpendicDistFromLineSqrd - avoids expensive Sqrt()
-        double d = PerpendicDistFromLineSqrd(path[i], path[begin], path[end]);
-        if (d <= max_d) continue;
-        max_d = d;
-        idx = i;
+        int idx = 0;
+        double max_d = 0;
+        while (end > begin && path[begin] == path[end]) flags[end--] = false;
+        for (int i = begin + 1; i < end; ++i)
+        {
+          // PerpendicDistFromLineSqrd - avoids expensive Sqrt()
+          double d = PerpendicDistFromLineSqrd(path[i], path[begin], path[end]);
+          if (d <= max_d) continue;
+          max_d = d;
+          idx = i;
+        }
+
+        if (max_d <= epsSqrd) return;
+        flags[idx] = true;
+        if (idx > begin + 1) RDP(path, begin, idx, epsSqrd, flags);
+        if (idx < end - 1)
+        {
+          begin = idx;
+          continue;
+        }
+
+        break;
       }
-      if (max_d <= epsSqrd) return;
-      flags[idx] = true;
-      if (idx > begin + 1) RDP(path, begin, idx, epsSqrd, flags);
-      if (idx < end - 1) RDP(path, idx, end, epsSqrd, flags);
     }
 
     public static PathD RamerDouglasPeucker(PathD path, double epsilon)
@@ -859,7 +941,7 @@ namespace Clipper2Lib
 
       bool[] flags = new bool[len];
       double[] dsq = new double[len];
-      int curr = 0, prev, start, next, prior2;
+      int curr = 0;
 
       if (isClosedPath)
       {
@@ -879,7 +961,7 @@ namespace Clipper2Lib
       {
         if (dsq[curr] > epsSqr)
         {
-          start = curr;
+          int start = curr;
           do
           {
             curr = GetNext(curr, high, ref flags);
@@ -887,10 +969,11 @@ namespace Clipper2Lib
           if (curr == start) break;
         }
 
-        prev = GetPrior(curr, high, ref flags);
-        next = GetNext(curr, high, ref flags);
+        int prev = GetPrior(curr, high, ref flags);
+        int next = GetNext(curr, high, ref flags);
         if (next == prev) break;
 
+        int prior2;
         if (dsq[next] < dsq[curr])
         {
           prior2 = prev;
@@ -933,7 +1016,7 @@ namespace Clipper2Lib
 
       bool[] flags = new bool[len];
       double[] dsq = new double[len];
-      int curr = 0, prev, start, next, prior2;
+      int curr = 0;
       if (isClosedPath)
       {
         dsq[0] = PerpendicDistFromLineSqrd(path[0], path[high], path[1]);
@@ -951,7 +1034,7 @@ namespace Clipper2Lib
       {
         if (dsq[curr] > epsSqr)
         {
-          start = curr;
+          int start = curr;
           do
           {
             curr = GetNext(curr, high, ref flags);
@@ -959,10 +1042,11 @@ namespace Clipper2Lib
           if (curr == start) break;
         }
 
-        prev = GetPrior(curr, high, ref flags);
-        next = GetNext(curr, high, ref flags);
+        int prev = GetPrior(curr, high, ref flags);
+        int next = GetNext(curr, high, ref flags);
         if (next == prev) break;
 
+        int prior2;
         if (dsq[next] < dsq[curr])
         {
           prior2 = prev;
@@ -1002,10 +1086,9 @@ namespace Clipper2Lib
       int i = 0;
       if (!isOpen)
       {
-        while (i < len - 1 && InternalClipper.CrossProduct(
-          path[len - 1], path[i], path[i + 1]) == 0) i++;
-        while (i < len - 1 && InternalClipper.CrossProduct(
-          path[len - 2], path[len - 1], path[i]) == 0) len--;
+        while (i < len - 1 && 
+          InternalClipper.IsCollinear(path[len - 1], path[i], path[i + 1])) i++;
+        while (i < len - 1 && InternalClipper.IsCollinear(path[len - 2], path[len - 1], path[i])) len--;
       }
 
       if (len - i < 3)
@@ -1020,22 +1103,22 @@ namespace Clipper2Lib
       result.Add(last);
       for (i++; i < len - 1; i++)
       {
-        if (InternalClipper.CrossProduct(
-              last, path[i], path[i + 1]) == 0) continue;
+        if (InternalClipper.IsCollinear(last, path[i], path[i + 1])) continue;
         last = path[i];
         result.Add(last);
       }
 
       if (isOpen)
         result.Add(path[len - 1]);
-      else if (InternalClipper.CrossProduct(
-        last, path[len - 1], result[0]) != 0)
+      else if (!InternalClipper.IsCollinear(last, path[len - 1], result[0]))
         result.Add(path[len - 1]);
       else
       {
-        while (result.Count > 2 && InternalClipper.CrossProduct(
-          result[result.Count - 1], result[result.Count - 2], result[0]) == 0)
-            result.RemoveAt(result.Count - 1);
+        while (result.Count > 2 && InternalClipper.IsCollinear(
+                 result[result.Count - 1], result[result.Count - 2], result[0]))
+        {
+          result.RemoveAt(result.Count - 1);
+        }
         if (result.Count < 3)
           result.Clear();
       }
@@ -1120,7 +1203,7 @@ namespace Clipper2Lib
       }
       else
       {
-        Console.WriteLine(spaces + caption + string.Format("({0})", pp.Count));
+        Console.WriteLine(spaces + caption + $"({pp.Count})");
         foreach (PolyPath64 child in pp) { ShowPolyPathStructure(child, level + 1); }
       }
     }
@@ -1141,7 +1224,7 @@ namespace Clipper2Lib
       }
       else
       {
-        Console.WriteLine(spaces + caption + string.Format("({0})", pp.Count));
+        Console.WriteLine(spaces + caption + $"({pp.Count})");
         foreach (PolyPathD child in pp) { ShowPolyPathStructure(child, level + 1); }
       }
     }
