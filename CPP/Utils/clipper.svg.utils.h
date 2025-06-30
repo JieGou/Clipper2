@@ -1,9 +1,9 @@
 /*******************************************************************************
 * Author    :  Angus Johnson                                                   *
 * Date      :  16 June 2022                                                    *
-* Website   :  http://www.angusj.com                                           *
+* Website   :  https://www.angusj.com                                          *
 * Copyright :  Angus Johnson 2010-2022                                         *
-* License   :  http://www.boost.org/LICENSE_1_0.txt                            *
+* License   :  https://www.boost.org/LICENSE_1_0.txt                           *
 *******************************************************************************/
 
 #ifndef svgutillib_h
@@ -19,18 +19,22 @@
 #include <unistd.h>
 #endif
 
+#include <fstream>
+
 namespace Clipper2Lib {
 
   static const unsigned subj_brush_clr = 0x1800009C;
-  static const unsigned subj_stroke_clr = 0xCCB3B3DA;
-  static const unsigned clip_brush_clr = 0x129C0000; 
+  static const unsigned subj_stroke_clr = 0xFFB3B3DA;
+  static const unsigned clip_brush_clr = 0x129C0000;
   static const unsigned clip_stroke_clr = 0xCCFFA07A;
   static const unsigned solution_brush_clr = 0x4466FF66;
 
-  inline bool FileExists(const std::string& name)
+
+  inline bool FileExists(const std::string& filename)
   {
-    struct stat buffer;
-    return (stat(name.c_str(), &buffer) == 0);
+    //return std::filesystem::exists(filename); // <filesystem> not available in Ubuntu (#990)
+    std::ifstream file(filename);
+    return file.good();
   }
 
   inline void SvgAddCaption(SvgWriter& svg, const std::string& caption, int x, int y)
@@ -52,7 +56,7 @@ namespace Clipper2Lib {
       svg.AddPaths(path, false, fillrule, 0x0, subj_stroke_clr, 0.8, false);
       PathsD tmp = Union(path, svg.Fill_Rule());
       svg.AddPaths(tmp, false, fillrule, subj_brush_clr, subj_stroke_clr, 0.8, false);
-    } 
+    }
     else
       svg.AddPaths(path, false, fillrule, subj_brush_clr, subj_stroke_clr, 0.8, false);
   }
@@ -105,7 +109,7 @@ namespace Clipper2Lib {
   inline void SvgAddSolution(SvgWriter& svg, const Paths64 &path, FillRule fillrule, bool show_coords)
   {
     svg.AddPaths(TransformPaths<double, int64_t>(path),
-      false, fillrule, solution_brush_clr, 0xFF003300, 1.2, show_coords);
+      false, fillrule, solution_brush_clr, 0xFF003300, 1.0, show_coords);
   }
 
 
@@ -116,7 +120,7 @@ namespace Clipper2Lib {
   }
 
 
-  inline void SvgAddOpenSolution(SvgWriter& svg, const Paths64& path, 
+  inline void SvgAddOpenSolution(SvgWriter& svg, const Paths64& path,
     FillRule fillrule, bool show_coords, bool is_joined = false)
   {
     svg.AddPaths(TransformPaths<double, int64_t>(path),

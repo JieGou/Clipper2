@@ -1,34 +1,35 @@
 program DelphiBenchmark;
 
 {$APPTYPE CONSOLE}
-{$R *.res}
 
 uses
-  Windows,
+Windows,
   ShellAPI,
   SysUtils,
   Classes,
-  Clipper.Core in '..\Clipper2Lib\Clipper.Core.pas',
-  Clipper.Engine in '..\Clipper2Lib\Clipper.Engine.pas',
-  Clipper in '..\Clipper2Lib\Clipper.pas',
   Clipper.SVG in '..\Utils\Clipper.SVG.pas',
   ClipMisc in '..\Utils\ClipMisc.pas',
-  Timer in '..\Utils\Timer.pas';
-
+  Timer in '..\Utils\Timer.pas',
+  Clipper.Core in '..\Clipper2Lib\Clipper.Core.pas',
+  Clipper.Engine in '..\Clipper2Lib\Clipper.Engine.pas',
+  Clipper.Minkowski in '..\Clipper2Lib\Clipper.Minkowski.pas',
+  Clipper.Offset in '..\Clipper2Lib\Clipper.Offset.pas',
+  Clipper in '..\Clipper2Lib\Clipper.pas',
+  Clipper.RectClip in '..\Clipper2Lib\Clipper.RectClip.pas';
 var
   s           : string;
   i,j         : integer;
   subj,clip   : TPaths64;
   solution    : TPaths64;
   edgeCount   : integer;
-  timerResult : double;
+  timerRec    : TTimeRec;
   timeTotal   : double;
   /////////////////////////////
   maxWidth    : integer   = 800;
   maxHeight   : integer   = 600;
   minEdgeCnt  : integer   = 1000;
-  maxEdgeCnt  : integer   = 8000;
-  loopCount   : integer   = 2;
+  maxEdgeCnt  : integer   = 5000;
+  loopCount   : integer   = 1;
   /////////////////////////////
 begin
   Randomize;
@@ -51,11 +52,9 @@ begin
       setLength(clip, 1);
       clip[0] := MakeRandomPath(maxWidth, maxHeight, edgeCount);
 
-      begin
-        InitTimer(timerResult);
-        solution := Intersect(subj, clip, frNonZero);
-      end;
-      timeTotal := timeTotal + timerResult;
+      StartTimer(timerRec);
+      solution := Intersect(subj, clip, frNonZero);
+      timeTotal := timeTotal + EndTimer(timerRec);
 
     end; //bottom of loop;
     WriteLn(Format('Average time: %1.0n msecs', [timeTotal*1000/loopCount]));
